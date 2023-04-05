@@ -143,7 +143,7 @@ unsigned int backward_optimizer(fp_t a, fp_t b, fp_t c, fp_t d
 }
 
 
-//Функция вычисления коэффициентов квадратных уровнений
+//Функция вычисления коэффициентов квадратных уравнений
 template<typename fp_t>
 unsigned int FQScoeffs(fp_t n, fp_t a, fp_t b, fp_t c, fp_t d, vector<fp_t>& coeffs,
         int maxIters = 10000) {
