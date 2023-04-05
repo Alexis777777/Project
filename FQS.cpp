@@ -6,80 +6,18 @@
 #include <queue>
 #include "Polynomials-main\Polynomial.cpp"
 
-template<typename fp_t>
-unsigned int ferrari_complex(fp_t n, fp_t a, fp_t b, fp_t c, fp_t d, vector<complex<fp_t>>& roots)
-{
-    // Нормировка коэффициентов
-    if (isZero(n) || isinf(a /= n))
-        return solveCubic(a, b, c, d, roots);
-    if (isinf(b /= n))
-        return 0;
-    if (isinf(c /= n))
-        return 0;
-    if (isinf(d /= n))
-        return 0;
-
-    // Объявление констант
-    static const fp_t ONE_HALF = static_cast<fp_t>(0.5L);
-    static const fp_t ONE_QUARTER = static_cast<fp_t>(0.25L);
-    static constexpr fp_t EPS = numeric_limits<fp_t>::epsilon();
-
-    // Количество вещественных корней
-    unsigned numberOfRoots = 0;
-
-    // Вычисляем расчетные коэффициенты
-    fp_t C = a * ONE_QUARTER;
-    fp_t a_ = fma(static_cast<fp_t>(-6.0L) * C, C, b);
-    fp_t b_ = fma(fms(static_cast<fp_t>(8.0L) * C, C, static_cast<fp_t>(2.0L), b), C, c);
-    fp_t c_ = fma(fma(fma(static_cast<fp_t>(-3.0L) * C, C, b), C, -c), C, d);
-
-    // Решаем резольвентное кубическое уравнение вида: m^3 + a_ * m^2 + (a_^2 / 4 - c_) * m - b_^2 / 8 = 0
-    vector<fp_t> cubicRoots(3);
-    unsigned numberOfCubicRoots = solveCubic(static_cast<fp_t>(1.0L), a_, fma(ONE_QUARTER * a_, a_, -c_), -b_ * b_ * static_cast<fp_t>(0.125L), cubicRoots);
-
-    // Выбираем корень, который удовлетворяет условию: m > 0 и является вещественным корнем, иначе m = 0
-    fp_t m = cubicRoots[numberOfCubicRoots - 1] > 0 ? cubicRoots[numberOfCubicRoots - 1] : static_cast<fp_t>(0.0L);
-
-    // Определяем знак радикала R
-    fp_t sigma = b_ > 0 ? static_cast<fp_t>(1.0L) : static_cast<fp_t>(-1.0L);
-
-    fp_t subR = fma(m, m, fma(fma(ONE_QUARTER, a_, m), a_, -c_));
-
-    // Радикал R
-    complex<fp_t> R = sigma * sqrt(complex<fp_t>(subR, static_cast<fp_t>(0.0L)));
-
-    complex<fp_t> radicandPart(fms(-ONE_HALF, m, ONE_HALF, a_), static_cast<fp_t>(0.0L));
-
-    // Вычисляем радиканды будущего решения
-    complex<fp_t> radicand = radicandPart - R;
-    complex<fp_t> radicand_ = radicandPart + R;
-
-    fp_t sqrtM = sqrt(m * ONE_HALF);
-
-    complex<fp_t> rootPart(sqrtM - C, static_cast<fp_t>(0.0L));
-    complex<fp_t> rootPart_(-sqrtM - C, static_cast<fp_t>(0.0L));
-
-    complex<fp_t> radical(sqrt(radicand));
-    complex<fp_t> radical_(sqrt(radicand_));
-
-    roots =
-    {
-        rootPart + radical,
-        rootPart - radical,
-        rootPart_ + radical_,
-        rootPart_ - radical_
-    };
-
-    // Определяем кол-во вещественных корней
-    if (radicand.real() >= 0 && isZero(radicand.imag()))
-        numberOfRoots += 2;
-    if (radicand_.real() >= 0 && isZero(radicand_.imag()))
-        numberOfRoots += 2;
-
-    return numberOfRoots;
-}
 
 
+/*
+    Имплементация метода решения уравнения четвертой степени — The fast quartic solver
+    Информация о методе — The_fast_quartic_solver-Strobach-2010.pdf
+    Работу выполнил — Федоров Алексей (https://github.com/Alexis777777)
+*/
+
+
+
+//Быстрый алгоритм наименьших квадратов для вычисления коэффициентов {γ0, δ0}
+//для заданного набора{ α0, β0 }
 template <typename fp_t>
 unsigned int least_squares(fp_t a, fp_t b, fp_t c, fp_t d
     , fp_t alpha0, fp_t beta0, vector<fp_t>& coeff) {
@@ -101,6 +39,7 @@ unsigned int least_squares(fp_t a, fp_t b, fp_t c, fp_t d
     y1 = c1 / L1;
     y2 = fma(-y1, L3, c2) / L2;     //y2 = (c2 - y1 * L3) / L2;
 
+    //Находим коэффициенты γ0, δ0
     fp_t delta0, gamma0;
     delta0 = y2 / L2;
     gamma0 = fma(-delta0, L3, y1) / L1;     //gamma0 = (y1 - delta0 * L3) / L1;
@@ -112,6 +51,9 @@ unsigned int least_squares(fp_t a, fp_t b, fp_t c, fp_t d
 }
 
 
+
+//Итеративный алгоритм уточнения коэффициентов {α, β, γ, δ} из заданного начального
+//приближения{ α0, β0, γ0, δ0 }.
 template <typename fp_t> 
 unsigned int backward_optimizer(fp_t a, fp_t b, fp_t c, fp_t d
     , fp_t alpha0, fp_t beta0, fp_t gamma0, fp_t delta0, unsigned maxIters, vector<fp_t>& coeff) {
@@ -120,21 +62,28 @@ unsigned int backward_optimizer(fp_t a, fp_t b, fp_t c, fp_t d
     fp_t y1, y2, y3, y4;
 
     fp_t U23, U33, U44, L43;
+
+    //Начальное приближение коэффициентов.
     fp_t alpha = alpha0, beta = beta0, gamma = gamma0, delta = delta0;
 
+    //Инициализация величин ошибок на коэффициентах.
     fp_t e1 = a - alpha - gamma;
     fp_t e2 = b - fma(alpha, gamma, beta + delta); //b - beta - alpha * gamma - delta;
     fp_t e3 = fma(-alpha, delta, fma(-beta, gamma, c)); //c - beta * gamma - alpha * delta;
     fp_t e4 = fma(-beta, delta, d); //d - beta * delta;
 
+    //Величина суммарной ошибки
     fp_t eps = 0;
+    //Счетчик итераций
     unsigned iters = 0;
 
+    //Очередь для хранения значений eps для 4-х предыдущих итераций
     queue <fp_t> q; q.push(0); q.push(0); q.push(0); q.push(0);
     fp_t tmp1, tmp2, tmp3, tmp4;
 
     for (int i = 0; i < maxIters; i++) {
 
+        //LU-факторизация.
         U23 = alpha - gamma;
         U33 = -fma(gamma, U23, delta - beta);   //beta - delta - gamma * U23;
 
@@ -142,21 +91,25 @@ unsigned int backward_optimizer(fp_t a, fp_t b, fp_t c, fp_t d
 
         U44 = -fma(L43, U23, delta - beta); //beta - delta - L43 * U23;
 
+        //Вычисление компонент {x1, x2, x3, x3} вспомогательного вектора x. Lx = e → x.
         x1 = e1;
         x2 = fma(-gamma, x1, e2);   //e2 - gamma * x1;
         x3 = fma(-gamma, x2, fma(-delta, x1, e3));  //e3 - delta * x1 - gamma * x2;
         x4 = fma(-L43, x3, fma(-delta, x2, e4));    //e4 - delta * x2 - L43 * x3;
 
+        //Определения компонент {y1, y2, y3, y3} вектора обновления y. Uy = x → y.
         y4 = x4 / U44;
         y3 = fma(-U23, y4, x3) / U33; //(x3 - U23 * y4) / U33;
         y2 = fma(-U23, y3, x2 - y4);    //x2 - U23 * y3 - y4;
         y1 = x1 - y3;
 
+        //Обновление коэффициентов.
         alpha = alpha + y1;
         beta = beta + y2;
         gamma = gamma + y3;
         delta = delta + y4;
 
+        //Вычисление величин ошибок на коэффициентах.
         e1 = a - alpha - gamma;
         e2 = b - fma(alpha, gamma, beta + delta);  //b - beta - alpha * gamma - delta;
         e3 = fma(-alpha, delta, fma(-beta, gamma, c));  //c - beta * gamma - alpha * delta;
@@ -164,6 +117,7 @@ unsigned int backward_optimizer(fp_t a, fp_t b, fp_t c, fp_t d
 
         iters = i;
 
+        //Величина суммарной ошибки
         eps = abs(e1) + abs(e2) + abs(e3) + abs(e4);        
 
         tmp1 = q.front(); q.pop();
@@ -171,9 +125,11 @@ unsigned int backward_optimizer(fp_t a, fp_t b, fp_t c, fp_t d
         tmp3 = q.front(); q.pop();
         tmp4 = q.front(); q.pop();
         
+        //Условие сходимости алгоритма.
         if (eps < 1e-07 or isEqual(eps, tmp1) or isEqual(eps, tmp2) or isEqual(eps, tmp3) or isEqual(eps, tmp4)) break;
-        //eps < 1e-07 подобрано эксперементально
+        //eps < 1e-07 подобрано экспериментально
 
+        //Обновление элементов очереди.
         q.push(tmp2); q.push(tmp3); q.push(tmp4); q.push(eps);
     }
 
@@ -187,7 +143,7 @@ unsigned int backward_optimizer(fp_t a, fp_t b, fp_t c, fp_t d
 }
 
 
-
+//Функция вычисления коэффициентов квадратных уровнений
 template<typename fp_t>
 unsigned int FQScoeffs(fp_t n, fp_t a, fp_t b, fp_t c, fp_t d, vector<fp_t>& coeffs,
         int maxIters = 10000) {
@@ -289,6 +245,7 @@ unsigned int FastQuarticSolver(fp_t n, fp_t a, fp_t b, fp_t c, fp_t d, vector<fp
     if (isZero(E1) and isZero(E2)) {
         solveQuadratic<fp_t>(static_cast<fp_t>(1.0L), alpha_, beta_, roots1);
         
+        //Определим действительные корни
         if (isZero(roots1[0].imag())) {
             roots[numberOfRoots] = roots1[0].real();    
             roots[numberOfRoots+1] = roots1[0].real();
