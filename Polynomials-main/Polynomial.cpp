@@ -1142,6 +1142,84 @@ void testCubicPolynomial(int testCount, long double maxDistance)
 //    }
 //}
 
+
+/*
+    Имплементация метода решения уравнения четвертой степени — Ferrari's Method
+    Информация о методе — https://quarticequations.com/Quartic2.pdf (стр. 3)
+    Работу выполнил — Погосов Даниэль (https://github.com/DarklleS)
+*/
+template<typename fp_t>
+unsigned int ferrari_complex(fp_t n, fp_t a, fp_t b, fp_t c, fp_t d, vector<complex<fp_t>>& roots)
+{
+    // Нормировка коэффициентов
+    if (isZero(n) || isinf(a /= n))
+        return solveCubic(a, b, c, d, roots);
+    if (isinf(b /= n))
+        return 0;
+    if (isinf(c /= n))
+        return 0;
+    if (isinf(d /= n))
+        return 0;
+
+    // Объявление констант
+    static const fp_t ONE_HALF = static_cast<fp_t>(0.5L);
+    static const fp_t ONE_QUARTER = static_cast<fp_t>(0.25L);
+    static constexpr fp_t EPS = numeric_limits<fp_t>::epsilon();
+
+    // Количество вещественных корней
+    unsigned numberOfRoots = 0;
+
+    // Вычисляем расчетные коэффициенты
+    fp_t C = a * ONE_QUARTER;
+    fp_t a_ = fma(static_cast<fp_t>(-6.0L) * C, C, b);
+    fp_t b_ = fma(fms(static_cast<fp_t>(8.0L) * C, C, static_cast<fp_t>(2.0L), b), C, c);
+    fp_t c_ = fma(fma(fma(static_cast<fp_t>(-3.0L) * C, C, b), C, -c), C, d);
+
+    // Решаем резольвентное кубическое уравнение вида: m^3 + a_ * m^2 + (a_^2 / 4 - c_) * m - b_^2 / 8 = 0
+    vector<fp_t> cubicRoots(3);
+    unsigned numberOfCubicRoots = solveCubic(static_cast<fp_t>(1.0L), a_, fma(ONE_QUARTER * a_, a_, -c_), -b_ * b_ * static_cast<fp_t>(0.125L), cubicRoots);
+
+    // Выбираем корень, который удовлетворяет условию: m > 0 и является вещественным корнем, иначе m = 0
+    fp_t m = cubicRoots[numberOfCubicRoots - 1] > 0 ? cubicRoots[numberOfCubicRoots - 1] : static_cast<fp_t>(0.0L);
+
+    // Определяем знак радикала R
+    fp_t sigma = b_ > 0 ? static_cast<fp_t>(1.0L) : static_cast<fp_t>(-1.0L);
+
+    fp_t subR = fma(m, m, fma(fma(ONE_QUARTER, a_, m), a_, -c_));
+
+    // Радикал R
+    complex<fp_t> R = sigma * sqrt(complex<fp_t>(subR, static_cast<fp_t>(0.0L)));
+
+    complex<fp_t> radicandPart(fms(-ONE_HALF, m, ONE_HALF, a_), static_cast<fp_t>(0.0L));
+
+    // Вычисляем радиканды будущего решения
+    complex<fp_t> radicand = radicandPart - R;
+    complex<fp_t> radicand_ = radicandPart + R;
+
+    fp_t sqrtM = sqrt(m * ONE_HALF);
+
+    complex<fp_t> rootPart(sqrtM - C, static_cast<fp_t>(0.0L));
+    complex<fp_t> rootPart_(-sqrtM - C, static_cast<fp_t>(0.0L));
+
+    complex<fp_t> radical(sqrt(radicand));
+    complex<fp_t> radical_(sqrt(radicand_));
+
+    roots =
+    {
+        rootPart + radical,
+        rootPart - radical,
+        rootPart_ + radical_,
+        rootPart_ - radical_
+    };
+
+    // Определяем кол-во вещественных корней
+    if (radicand.real() >= 0 && isZero(radicand.imag()))
+        numberOfRoots += 2;
+    if (radicand_.real() >= 0 && isZero(radicand_.imag()))
+        numberOfRoots += 2;
+
+    return numberOfRoots;
+}
 //int main()
 //{
 //    testQuarticPolynomial<fp_t>(10000000, 1e-5);
